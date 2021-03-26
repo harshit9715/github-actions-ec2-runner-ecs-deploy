@@ -1,6 +1,9 @@
 # Github actions ec2-runner ecs-deploy
 ## Workflow and configs needed to deploy an application on multiple AWS (accounts) on ECS using ec2-runner with assumed role by ec2.
 
+## Configure ec2 github runner
+This is easy just click on repository settings go to secrets and configure a runner.
+
 ## Required Repository Secrets
 
 1- ARN of the role to be assumed by ec2
