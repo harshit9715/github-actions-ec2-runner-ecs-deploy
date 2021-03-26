@@ -1,0 +1,101 @@
+# Assuming that you want to deploy an application to 'AWS ECS account Y' using github actions,
+# but using your own 'ec2 runner in AWS account X'
+# this guide id for you.
+#
+# Github Secrets needed to be configured are:
+#
+# 1- ARN of the role to be assumed by ec2
+#    this template uses ASSUME_ROLE_ARN_{{BRANCH_NAME}} as secret name.
+# 2- (optional) AWS_ROLE_EXTERNAL_ID for making sure role is only assumed by the ec2 and no one else.
+#
+
+on:
+  push:
+    branches:
+      - develop
+      - stage
+
+name: Deploy to Amazon ECS
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: 9715 # this is a runner tag, replace with your runner tag.
+
+    steps:
+    - name: Extract branch name and configure required env variables.
+      shell: bash
+      run: |
+        # Add more configs if needed, this helps in dynamically passing parameters according to selected branch such as role ARN
+        # ################ variable name ############ Variable value
+        #
+        echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
+        #
+        echo "##[set-output name=repo_develop;]$(echo 'my-first-repo')"
+        echo "##[set-output name=repo_stage;]$(echo 'stageecrtest')"
+        #
+        echo "##[set-output name=container_develop;]$(echo 'sample-app')"
+        echo "##[set-output name=container_stage;]$(echo 'sample-app')"
+        #
+        echo "##[set-output name=cluter_develop;]$(echo 'default')"
+        echo "##[set-output name=cluster_stage;]$(echo 'StageECSTest')"
+        #
+        echo "##[set-output name=service_develop;]$(echo 'sample-app-service')"
+        echo "##[set-output name=service_stage;]$(echo 'sample-app-service')"
+        
+        
+      id: extract_branch
+
+    - name: Checkout
+      uses: actions/checkout@v1
+
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        # Don't create/add aws user in github if you have attached a role directly to ec2 with permissions to assume other role.
+        # role-skip-session-tagging: true
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }} 
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1 # If needed make this configurable as well
+        role-to-assume: ${{ secrets[format('ASSUME_ROLE_ARN_{0}', steps.extract_branch.outputs.branch )] }} 
+        role-external-id: ${{ secrets.AWS_ROLE_EXTERNAL_ID }}
+        role-duration-seconds: 1200
+        role-session-name: srebot
+        
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+      
+    - name: Validate if the assume role operation was successful
+      run: aws sts get-caller-identity
+
+    - name: Build, tag, and push image to Amazon ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: ${{ steps.extract_branch.outputs[format('repo_{0}', steps.extract_branch.outputs.branch)] }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Build a docker container and
+        # push it to ECR so that it can
+        # be deployed to ECS.
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+    - name: Fill in the new image ID in the Amazon ECS task definition
+      id: task-def
+      uses: aws-actions/amazon-ecs-render-task-definition@v1
+      with:
+        # If you have separate task-definitions for your environments then you can name them like develop-task-definition.json
+        task-definition: ${{ format('{0}-task-definition.json', steps.extract_branch.outputs.branch ) }}
+        container-name: ${{ steps.extract_branch.outputs[format('container_{0}', steps.extract_branch.outputs.branch)] }}
+        image: ${{ steps.build-image.outputs.image }}
+
+    - name: Deploy Amazon ECS task definition
+      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+      with:
+        task-definition: ${{ steps.task-def.outputs.task-definition }}
+        service: ${{ steps.extract_branch.outputs[format('service_{0}', steps.extract_branch.outputs.branch)] }}
+        cluster: ${{ steps.extract_branch.outputs[format('cluster_{0}', steps.extract_branch.outputs.branch)] }}
+        wait-for-service-stability: true
