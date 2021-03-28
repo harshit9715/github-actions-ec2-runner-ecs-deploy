@@ -23,4 +23,4 @@
 - Add trust policy on the role (P) allowing it to be assumed by role (Q).
 
 ### More details and sample app ?
-If you are having issus understanding this or having issues with setting permissions, checkout [this](https://github.com/harshit9715/github-actions-ec2-runner-ecs-deploy) other repo. It includes more info but uses github default runner.
+If you are having issus understanding this or having issues with setting permissions, checkout [this](https://github.com/harshit9715/github-actions-aws-ecs-deploy) other repo. It includes more info but uses github default runner.
